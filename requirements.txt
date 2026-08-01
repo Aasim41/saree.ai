@@ -5,3 +5,17 @@ Pillow==10.2.0
 numpy==1.26.4
 python-dotenv==1.0.1
 jsonschema==4.21.1
+
+# Database & ORM
+sqlalchemy==2.0.27
+alembic==1.13.1
+pydantic==2.6.1
+
+# AI & Generation Pipeline
+torch==2.2.0
+diffusers==0.26.3
+transformers==4.37.2
+accelerate==0.27.2
+
+# Image Processing
+colorthief==0.2.1
