@@ -3,14 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
 import uvicorn
 import os
 import uuid
 import subprocess
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw
+from colorthief import ColorThief
 
-import database
+from database import get_db
+import models
+import schemas
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(current_dir, "..", "..", ".env")
@@ -39,7 +43,6 @@ PROCESSED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__f
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 app.mount("/images", StaticFiles(directory=PROCESSED_DIR), name="images")
 
-
 def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
     if credentials.username != AUTH_USER or credentials.password != AUTH_PASS:
         raise HTTPException(
@@ -49,20 +52,19 @@ def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-@app.on_event("startup")
-def startup():
-    database.init_db()
-
 def extract_dominant_colors(image_path):
-    """Basic PIL-based dominant color extraction stub"""
+    """Use ColorThief to extract the top 3 dominant colors as hex codes."""
     try:
-        img = Image.open(image_path).convert("P", palette=Image.ADAPTIVE, colors=3).convert("RGB")
-        colors = img.getcolors(3)
-        return ", ".join([f"#{c[1][0]:02x}{c[1][1]:02x}{c[1][2]:02x}" for c in colors])
-    except:
+        color_thief = ColorThief(image_path)
+        # get dominant color + palette
+        palette = color_thief.get_palette(color_count=3)
+        hex_colors = [f"#{c[0]:02x}{c[1]:02x}{c[2]:02x}" for c in palette]
+        return ", ".join(hex_colors)
+    except Exception as e:
+        print(f"Color extraction failed: {e}")
         return "#ffffff, #000000"
 
-@app.post("/upload")
+@app.post("/upload", response_model=schemas.AssetResponse)
 async def upload_asset(
     name: str = Form(...),
     collection: str = Form(...),
@@ -70,7 +72,8 @@ async def upload_asset(
     print_width_cm: int = Form(...),
     repeat_size_cm: int = Form(...),
     file: UploadFile = File(...),
-    username: str = Depends(authenticate)
+    username: str = Depends(authenticate),
+    db: Session = Depends(get_db)
 ):
     asset_uuid = str(uuid.uuid4())
     filename = f"{asset_uuid}_{file.filename}"
@@ -81,28 +84,37 @@ async def upload_asset(
         
     palette = extract_dominant_colors(filepath)
     
-    asset_id = database.save_asset(
-        name=name, collection=collection, fabric_type=fabric_type,
-        print_width_cm=print_width_cm, repeat_size_cm=repeat_size_cm,
-        palette=palette, parent_id=None, image_path=filename
+    db_asset = models.Asset(
+        name=name, 
+        collection=collection, 
+        fabric_type=fabric_type,
+        print_width_cm=print_width_cm, 
+        repeat_size_cm=repeat_size_cm,
+        palette=palette, 
+        parent_id=None, 
+        image_path=filename
     )
+    db.add(db_asset)
+    db.commit()
+    db.refresh(db_asset)
     
-    return {"status": "success", "id": asset_id, "palette": palette}
+    return db_asset
 
 
-@app.post("/generate-variant/{parent_id}")
+@app.post("/generate-variant/{parent_id}", response_model=schemas.AssetResponse)
 async def generate_variant(
     parent_id: int,
     new_palette: str = Form(...),
     new_repeat_cm: int = Form(...),
-    username: str = Depends(authenticate)
+    username: str = Depends(authenticate),
+    db: Session = Depends(get_db)
 ):
-    parent = database.get_asset(parent_id)
+    parent = db.query(models.Asset).filter(models.Asset.id == parent_id).first()
     if not parent:
         raise HTTPException(status_code=404, detail="Parent asset not found")
         
     # Simulate AI variant generation using Pillow for the MVP
-    img_path = os.path.join(PROCESSED_DIR, parent["image_path"])
+    img_path = os.path.join(PROCESSED_DIR, parent.image_path)
     base_img = Image.open(img_path).convert("RGB")
     
     # Just draw a simple overlay to represent a "variant"
@@ -115,37 +127,53 @@ async def generate_variant(
     filepath = os.path.join(PROCESSED_DIR, filename)
     base_img.save(filepath, format="JPEG", quality=90)
     
-    variant_id = database.save_asset(
-        name=f"{parent['name']} (Variant)", 
-        collection=parent["collection"], 
-        fabric_type=parent["fabric_type"],
-        print_width_cm=parent["print_width_cm"], 
+    variant_asset = models.Asset(
+        name=f"{parent.name} (Variant)", 
+        collection=parent.collection, 
+        fabric_type=parent.fabric_type,
+        print_width_cm=parent.print_width_cm, 
         repeat_size_cm=new_repeat_cm,
         palette=new_palette, 
         parent_id=parent_id, 
         image_path=filename
     )
     
-    return {
-        "status": "success",
-        "id": variant_id,
-        "image_url": f"http://127.0.0.1:8000/images/{filename}"
-    }
+    db.add(variant_asset)
+    db.commit()
+    db.refresh(variant_asset)
+    
+    return variant_asset
 
-@app.get("/assets")
-async def get_assets(username: str = Depends(authenticate)):
-    assets = database.get_assets()
+@app.get("/assets", response_model=dict)
+async def get_assets(username: str = Depends(authenticate), db: Session = Depends(get_db)):
+    assets = db.query(models.Asset).order_by(models.Asset.created_at.desc()).all()
+    # Serialize with image_url
+    result = []
     for a in assets:
-        a["image_url"] = f"http://127.0.0.1:8000/images/{a['image_path']}"
-    return {"status": "success", "assets": assets}
+        a_dict = {
+            "id": a.id,
+            "name": a.name,
+            "collection": a.collection,
+            "fabric_type": a.fabric_type,
+            "print_width_cm": a.print_width_cm,
+            "repeat_size_cm": a.repeat_size_cm,
+            "palette": a.palette,
+            "parent_id": a.parent_id,
+            "image_path": a.image_path,
+            "created_at": a.created_at,
+            "image_url": f"http://127.0.0.1:8000/images/{a.image_path}"
+        }
+        result.append(a_dict)
+        
+    return {"status": "success", "assets": result}
 
 @app.get("/export/{asset_id}")
-async def export_print_package(asset_id: int, username: str = Depends(authenticate)):
-    asset = database.get_asset(asset_id)
+async def export_print_package(asset_id: int, username: str = Depends(authenticate), db: Session = Depends(get_db)):
+    asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
         
-    img_path = os.path.join(PROCESSED_DIR, asset["image_path"])
+    img_path = os.path.join(PROCESSED_DIR, asset.image_path)
     export_dir = os.path.join(PROCESSED_DIR, "exports")
     os.makedirs(export_dir, exist_ok=True)
     out_zip = os.path.join(export_dir, f"texflow_pkg_{asset_id}.zip")
@@ -167,8 +195,8 @@ async def export_print_package(asset_id: int, username: str = Depends(authentica
         "--pallu", img_path, 
         "--out", out_zip, 
         "--print-ready",
-        "--fabric", asset["fabric_type"],
-        "--width", str(asset["print_width_cm"])
+        "--fabric", asset.fabric_type,
+        "--width", str(asset.print_width_cm)
     ])
     
     if os.path.exists(out_zip):
