@@ -1,28 +1,28 @@
-# Saree Design AI
+# TexFlow - AI Design & Production Workspace
 
-An end-to-end, locally runnable application for AI-assisted textile design.
+TexFlow is a professional workspace for digital textile printing. It manages the entire pipeline from design asset ingestion, controlled AI variant generation, mathematical seamless validation, and manufacturer export packaging.
 
 ## Features
-- **Strict Data Pipeline**: Component-aware cropping and strict JSON validation for LoRA training.
-- **Mathematical Seam Checks**: Automated testing for seamless tile repetition using MAE.
-- **Memory-Safe Manufacturer Export**: Exports individual CMYK tiles alongside a layout JSON for standard textile printers, completely avoiding RAM crashes.
-- **Designer Interface**: React frontend + FastAPI backend with SQLite asset history.
+- **Asset Lineage**: Track parent designs and their AI-generated variants.
+- **Upload & Prepare**: Detect dominant colors and define physical fabric requirements.
+- **Controlled Variants**: Generate new colourways and scale adjustments safely tied to a parent asset.
+- **Production Export**: Export true CMYK, DPI-embedded ZIP packages with machine layout instructions.
 
-## Setup Instructions
+## Setup
+(Requires Node.js and Python 3.10+)
 
-### 1. Backend (FastAPI)
-1. Navigate to the project root: `cd saree-ai`
-2. Create virtual environment: `python -m venv venv`
-3. Activate it: `.\venv\Scripts\activate` (Windows)
-4. Install dependencies: `pip install -r requirements.txt`
-5. Start server: `cd app/backend` then `uvicorn main:app --reload`
+**1. Backend:**
+```powershell
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+cd app\backend
+uvicorn main:app --reload
+```
 
-### 2. Frontend (React)
-1. Navigate to frontend: `cd app/frontend`
-2. Install Node dependencies: `npm install`
-3. Start Vite server: `npm run dev`
-
-### 3. Layout / Pipeline Tools
-- **Prep Images**: `python data_pipeline/prep_images.py --input_dir data/raw --output_dir data/processed --crop_mode bottom`
-- **Seam Check**: `python postprocess/seamless_check.py --input my_tile.jpg`
-- **Export Print Package**: `python postprocess/layout_template.py --body b.jpg --border br.jpg --pallu p.jpg --print-ready`
+**2. Frontend:**
+```powershell
+cd app\frontend
+npm install
+npm run dev
+```
