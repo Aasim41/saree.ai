@@ -3,7 +3,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DB_FILE = "texflow_assets.db"
-# Use absolute path to ensure DB is created in the backend folder
 current_dir = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(current_dir, DB_FILE)
 
@@ -15,6 +14,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
 
 def get_db():
     db = SessionLocal()

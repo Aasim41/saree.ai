@@ -4,7 +4,11 @@ __pycache__/
 .env
 .env.local
 *.log
+*.db
 data/raw_images/*
 data/processed/*
 !data/raw_images/.gitkeep
 !data/processed/.gitkeep
+training/output/*
+!training/output/.gitkeep
+temp_export/

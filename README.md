@@ -9,8 +9,8 @@ TexFlow is a professional workspace for digital textile printing. It manages the
 - **Production Export**: Export true CMYK, DPI-embedded ZIP packages with machine layout instructions.
 
 ## Architecture Notes
-- **Database**: Currently using Python's built-in `sqlite3` (no DB driver needed) for rapid MVP prototyping. Scheduled to migrate to PostgreSQL (`psycopg2-binary`) for production scaling.
-- **AI Hardware**: Generation requires a CUDA-enabled GPU.
+- **Database**: SQLAlchemy + Alembic on SQLite (`texflow_assets.db`). Swap to PostgreSQL later by changing `SQLALCHEMY_DATABASE_URL` in `database.py`.
+- **AI Hardware**: Generation requires a CUDA-enabled GPU. Without a trained LoRA, `/generate-variant` falls back to a Pillow mock.
 
 ## Setup
 (Requires Node.js and Python 3.10+)
@@ -25,6 +25,7 @@ pip install torch==2.2.0 --index-url https://download.pytorch.org/whl/cu121
 
 pip install -r requirements.txt
 cd app\backend
+alembic upgrade head
 uvicorn main:app --reload
 ```
 
