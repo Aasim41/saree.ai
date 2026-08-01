@@ -1,0 +1,10 @@
+node_modules/
+venv/
+__pycache__/
+.env
+.env.local
+*.log
+data/raw_images/*
+data/processed/*
+!data/raw_images/.gitkeep
+!data/processed/.gitkeep

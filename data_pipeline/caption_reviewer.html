@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dataset Caption Reviewer</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; background: #f5f5f5; }
+        .container { display: flex; width: 90%; max-width: 1200px; gap: 20px; margin-top: 20px; }
+        .image-panel { flex: 1; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .image-panel img { max-width: 100%; max-height: 600px; object-fit: contain; }
+        .caption-panel { flex: 1; display: flex; flex-direction: column; gap: 10px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 350px; font-family: monospace; padding: 10px; box-sizing: border-box; }
+        .controls { display: flex; justify-content: space-between; margin-top: 10px; }
+        button { padding: 10px 20px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
+        button#openDir { background: #2196F3; color: white; font-size: 16px; padding: 15px 30px; }
+        button#prevBtn, button#nextBtn { background: #e0e0e0; color: #333; }
+        button#saveBtn { background: #4CAF50; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Saree Dataset Caption Reviewer</h1>
+    <p>Select your processed dataset folder. This tool uses the local File System API (works in Chrome/Edge) so your files stay on your laptop.</p>
+    
+    <div>
+        <button id="openDir">Open Dataset Folder</button>
+    </div>
+    
+    <div class="container" style="display:none;" id="editor">
+        <div class="image-panel">
+            <h3 id="filename" style="word-break: break-all;">No file selected</h3>
+            <img id="preview" src="" alt="Preview">
+        </div>
+        <div class="caption-panel">
+            <h3>Caption JSON (Matches our Schema)</h3>
+            <textarea id="captionText"></textarea>
+            <div class="controls">
+                <button id="prevBtn">&laquo; Previous</button>
+                <button id="saveBtn">Save (Ctrl+S)</button>
+                <button id="nextBtn">Next &raquo;</button>
+            </div>
+            <p style="text-align: center; color: #666;">File <span id="currentIndex">0</span> of <span id="totalFiles">0</span></p>
+        </div>
+    </div>
+
+    <script>
+        let dirHandle;
+        let images = [];
+        let currentIndex = -1;
+
+        document.getElementById('openDir').addEventListener('click', async () => {
+            try {
+                dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                images = [];
+                for await (const entry of dirHandle.values()) {
+                    if (entry.kind === 'file' && entry.name.match(/\.(jpg|jpeg|png)$/i)) {
+                        images.push(entry);
+                    }
+                }
+                
+                // Sort alphabetically so they appear in a predictable order
+                images.sort((a, b) => a.name.localeCompare(b.name));
+
+                if (images.length > 0) {
+                    document.getElementById('editor').style.display = 'flex';
+                    document.getElementById('totalFiles').innerText = images.length;
+                    document.getElementById('openDir').style.display = 'none';
+                    await loadItem(0);
+                } else {
+                    alert("No images found in the selected folder.");
+                }
+            } catch (err) {
+                console.error(err);
+                if (err.name !== 'AbortError') {
+                    alert("Failed to open directory. Make sure you are using a compatible browser like Chrome or Edge.");
+                }
+            }
+        });
+
+        async function loadItem(index) {
+            if (index < 0 || index >= images.length) return;
+            currentIndex = index;
+            document.getElementById('currentIndex').innerText = index + 1;
+            
+            const imgHandle = images[index];
+            document.getElementById('filename').innerText = imgHandle.name;
+            
+            const file = await imgHandle.getFile();
+            document.getElementById('preview').src = URL.createObjectURL(file);
+            
+            // Try to load caption file (.json)
+            const basename = imgHandle.name.substring(0, imgHandle.name.lastIndexOf('.'));
+            const txtName = basename + '.json';
+            
+            try {
+                const txtHandle = await dirHandle.getFileHandle(txtName);
+                const txtFile = await txtHandle.getFile();
+                const text = await txtFile.text();
+                
+                // Pretty print it just in case
+                try {
+                    const parsed = JSON.parse(text);
+                    document.getElementById('captionText').value = JSON.stringify(parsed, null, 4);
+                } catch(e) {
+                    document.getElementById('captionText').value = text;
+                }
+            } catch (e) {
+                // File doesn't exist, generate template
+                const template = {
+                    "motif": "",
+                    "palette": [],
+                    "weave": "",
+                    "placement": "body_tile",
+                    "dimensions": "20x20cm",
+                    "repeat_direction": "seamless_both",
+                    "raw_caption": ""
+                };
+                document.getElementById('captionText').value = JSON.stringify(template, null, 4);
+            }
+        }
+
+        async function saveCurrent() {
+            if (currentIndex < 0) return;
+            const imgHandle = images[currentIndex];
+            const basename = imgHandle.name.substring(0, imgHandle.name.lastIndexOf('.'));
+            const txtName = basename + '.json';
+            
+            try {
+                // Basic JSON validation before saving
+                JSON.parse(document.getElementById('captionText').value);
+                
+                const txtHandle = await dirHandle.getFileHandle(txtName, { create: true });
+                const writable = await txtHandle.createWritable();
+                await writable.write(document.getElementById('captionText').value);
+                await writable.close();
+                
+                const saveBtn = document.getElementById('saveBtn');
+                saveBtn.innerText = "Saved!";
+                saveBtn.style.background = "#2E7D32"; // Darker green
+                setTimeout(() => {
+                    saveBtn.innerText = "Save (Ctrl+S)";
+                    saveBtn.style.background = "#4CAF50";
+                }, 1000);
+            } catch (e) {
+                if (e instanceof SyntaxError) {
+                    alert("Invalid JSON format. Please fix any syntax errors before saving.");
+                } else {
+                    alert("Failed to save. You may need to grant write permissions to the browser.");
+                    console.error(e);
+                }
+            }
+        }
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            saveCurrent().then(() => loadItem(currentIndex - 1));
+        });
+        
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            saveCurrent().then(() => loadItem(currentIndex + 1));
+        });
+        
+        document.getElementById('saveBtn').addEventListener('click', saveCurrent);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                saveCurrent();
+            }
+        });
+    </script>
+</body>
+</html>
